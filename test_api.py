@@ -8,7 +8,7 @@ import numpy as np
 from datetime import datetime
 
 # Configuration
-API_BASE_URL = "http://localhost:5000"  # Change to your Render URL when deployed
+API_BASE_URL = "https://seizure-detection-using-eeg-deployment.onrender.com"  # Change to your Render URL when deployed
 # Example: API_BASE_URL = "https://your-app-name.onrender.com"
 
 def test_api_health():

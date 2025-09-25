@@ -29,33 +29,66 @@ def load_models():
     global models, model_info
     
     try:
-        # Model file paths (adjust these based on your uploaded model files)
-        model_files = {
-            'cnn_3class': 'models/cnn_3class_epilepsy_20250925_065912.h5',
-            'bilstm_3class': 'models/bilstm_3class_epilepsy_20250925_065912.h5',
-            'cnn_binary': 'models/cnn_binary_epilepsy_20250925_065912.h5',
-            'bilstm_binary': 'models/bilstm_binary_epilepsy_20250925_065912.h5'
-        }
+        # Check if models directory exists
+        models_dir = 'models'
+        if not os.path.exists(models_dir):
+            logger.error(f"❌ Models directory not found: {models_dir}")
+            return
         
-        # Load each model
-        for model_name, model_path in model_files.items():
-            if os.path.exists(model_path):
+        # List all files in models directory for debugging
+        logger.info(f"📁 Checking models directory: {models_dir}")
+        try:
+            files_in_models = os.listdir(models_dir)
+            logger.info(f"📋 Files found: {files_in_models}")
+        except Exception as e:
+            logger.error(f"❌ Cannot list models directory: {str(e)}")
+            return
+        
+        # Auto-discover model files
+        h5_files = [f for f in files_in_models if f.endswith('.h5')]
+        logger.info(f"🔍 Found .h5 files: {h5_files}")
+        
+        # Map discovered files to model names
+        model_mapping = {}
+        for file in h5_files:
+            if 'cnn_3class' in file:
+                model_mapping['cnn_3class'] = f"{models_dir}/{file}"
+            elif 'bilstm_3class' in file:
+                model_mapping['bilstm_3class'] = f"{models_dir}/{file}"
+            elif 'cnn_binary' in file:
+                model_mapping['cnn_binary'] = f"{models_dir}/{file}"
+            elif 'bilstm_binary' in file:
+                model_mapping['bilstm_binary'] = f"{models_dir}/{file}"
+        
+        logger.info(f"🗺️ Model mapping: {model_mapping}")
+        
+        # Load each discovered model
+        for model_name, model_path in model_mapping.items():
+            try:
+                logger.info(f"🔄 Loading {model_name} from {model_path}")
                 models[model_name] = load_model(model_path)
-                logger.info(f"✅ Loaded {model_name} from {model_path}")
-            else:
-                logger.warning(f"⚠️ Model file not found: {model_path}")
+                logger.info(f"✅ Successfully loaded {model_name}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load {model_name}: {str(e)}")
         
         # Load model information
-        info_path = 'models/model_info_20250925_065912.pkl'
-        if os.path.exists(info_path):
-            with open(info_path, 'rb') as f:
-                model_info = pickle.load(f)
-            logger.info("✅ Loaded model information")
+        pkl_files = [f for f in files_in_models if f.endswith('.pkl')]
+        if pkl_files:
+            info_path = f"{models_dir}/{pkl_files[0]}"
+            try:
+                with open(info_path, 'rb') as f:
+                    model_info = pickle.load(f)
+                logger.info(f"✅ Loaded model information from {info_path}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not load model info: {str(e)}")
         
-        logger.info(f"🎉 Successfully loaded {len(models)} models")
+        logger.info(f"🎉 Model loading complete! Loaded {len(models)} models")
+        
+        if len(models) == 0:
+            logger.error("❌ No models were loaded! Check if model files are present in the models/ directory")
         
     except Exception as e:
-        logger.error(f"❌ Error loading models: {str(e)}")
+        logger.error(f"❌ Critical error in load_models: {str(e)}")
         logger.error(traceback.format_exc())
 
 def preprocess_input(data):
@@ -129,6 +162,29 @@ def get_model_info():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/debug', methods=['GET'])
+def debug_info():
+    """Debug endpoint to check file system and model loading"""
+    try:
+        debug_data = {
+            'current_directory': os.getcwd(),
+            'models_directory_exists': os.path.exists('models'),
+            'files_in_current_dir': os.listdir('.') if os.path.exists('.') else [],
+            'loaded_models_count': len(models),
+            'loaded_model_names': list(models.keys())
+        }
+        
+        # Check models directory
+        if os.path.exists('models'):
+            debug_data['files_in_models_dir'] = os.listdir('models')
+        else:
+            debug_data['files_in_models_dir'] = 'models directory not found'
+        
+        return jsonify(debug_data)
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
