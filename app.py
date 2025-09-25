@@ -24,68 +24,68 @@ CORS(app)  # Enable CORS for all routes
 models = {}
 model_info = None
 
-def load_models():
-    """Load all trained models at startup"""
+def load_model_on_demand(model_name):
+    """Load a specific model on demand to save memory"""
     global models, model_info
+    
+    # If model already loaded, return it
+    if model_name in models:
+        logger.info(f"🔄 Using cached model: {model_name}")
+        return models[model_name]
     
     try:
         # Check if models directory exists
         models_dir = 'models'
         if not os.path.exists(models_dir):
             logger.error(f"❌ Models directory not found: {models_dir}")
+            return None
+        
+        # Find the model file
+        files_in_models = os.listdir(models_dir)
+        h5_files = [f for f in files_in_models if f.endswith('.h5') and model_name in f]
+        
+        if not h5_files:
+            logger.error(f"❌ Model file for '{model_name}' not found in {files_in_models}")
+            return None
+        
+        model_file = h5_files[0]
+        model_path = f"{models_dir}/{model_file}"
+        
+        logger.info(f"� Loading {model_name} on-demand from {model_path}")
+        
+        # Check file size
+        file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+        logger.info(f"📊 File size: {file_size:.2f} MB")
+        
+        # Load the model
+        model = load_model(model_path)
+        models[model_name] = model  # Cache for future use
+        
+        logger.info(f"✅ Successfully loaded {model_name} on-demand")
+        logger.info(f"📋 Model input shape: {model.input_shape}")  
+        logger.info(f"📋 Model output shape: {model.output_shape}")
+        
+        return model
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load {model_name} on-demand: {str(e)}")
+        logger.error(f"📍 Full traceback:")
+        logger.error(traceback.format_exc())
+        return None
+
+def load_model_info():
+    """Load model information file"""
+    global model_info
+    
+    try:
+        models_dir = 'models'
+        if not os.path.exists(models_dir):
+            logger.error(f"❌ Models directory not found: {models_dir}")
             return
         
-        # List all files in models directory for debugging
-        logger.info(f"📁 Checking models directory: {models_dir}")
-        try:
-            files_in_models = os.listdir(models_dir)
-            logger.info(f"📋 Files found: {files_in_models}")
-        except Exception as e:
-            logger.error(f"❌ Cannot list models directory: {str(e)}")
-            return
-        
-        # Auto-discover model files
-        h5_files = [f for f in files_in_models if f.endswith('.h5')]
-        logger.info(f"🔍 Found .h5 files: {h5_files}")
-        
-        # Map discovered files to model names
-        model_mapping = {}
-        for file in h5_files:
-            if 'cnn_3class' in file:
-                model_mapping['cnn_3class'] = f"{models_dir}/{file}"
-            elif 'bilstm_3class' in file:
-                model_mapping['bilstm_3class'] = f"{models_dir}/{file}"
-            elif 'cnn_binary' in file:
-                model_mapping['cnn_binary'] = f"{models_dir}/{file}"
-            elif 'bilstm_binary' in file:
-                model_mapping['bilstm_binary'] = f"{models_dir}/{file}"
-        
-        logger.info(f"🗺️ Model mapping: {model_mapping}")
-        
-        # Load each discovered model with detailed error handling
-        for model_name, model_path in model_mapping.items():
-            try:
-                logger.info(f"🔄 Loading {model_name} from {model_path}")
-                
-                # Check file size
-                file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
-                logger.info(f"📊 File size: {file_size:.2f} MB")
-                
-                # Try to load the model
-                model = load_model(model_path)
-                models[model_name] = model
-                logger.info(f"✅ Successfully loaded {model_name}")
-                logger.info(f"📋 Model input shape: {model.input_shape}")
-                logger.info(f"📋 Model output shape: {model.output_shape}")
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to load {model_name}: {str(e)}")
-                logger.error(f"📍 Full traceback for {model_name}:")
-                logger.error(traceback.format_exc())
-                # Continue loading other models even if one fails
-        
-        # Load model information
+        files_in_models = os.listdir(models_dir)
         pkl_files = [f for f in files_in_models if f.endswith('.pkl')]
+        
         if pkl_files:
             info_path = f"{models_dir}/{pkl_files[0]}"
             try:
@@ -94,15 +94,38 @@ def load_models():
                 logger.info(f"✅ Loaded model information from {info_path}")
             except Exception as e:
                 logger.warning(f"⚠️ Could not load model info: {str(e)}")
+        else:
+            logger.warning("⚠️ No model info (.pkl) file found")
+            
+    except Exception as e:
+        logger.error(f"❌ Error loading model info: {str(e)}")
+
+def get_available_models():
+    """Get list of available models based on files in models directory"""
+    try:
+        models_dir = 'models'
+        if not os.path.exists(models_dir):
+            return []
         
-        logger.info(f"🎉 Model loading complete! Loaded {len(models)} models")
+        files_in_models = os.listdir(models_dir)
+        h5_files = [f for f in files_in_models if f.endswith('.h5')]
         
-        if len(models) == 0:
-            logger.error("❌ No models were loaded! Check if model files are present in the models/ directory")
+        available = []
+        for file in h5_files:
+            if 'cnn_3class' in file and 'cnn_3class' not in available:
+                available.append('cnn_3class')
+            elif 'bilstm_3class' in file and 'bilstm_3class' not in available:
+                available.append('bilstm_3class')  
+            elif 'cnn_binary' in file and 'cnn_binary' not in available:
+                available.append('cnn_binary')
+            elif 'bilstm_binary' in file and 'bilstm_binary' not in available:
+                available.append('bilstm_binary')
+        
+        return available
         
     except Exception as e:
-        logger.error(f"❌ Critical error in load_models: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Error getting available models: {str(e)}")
+        return []
 
 def preprocess_input(data):
     """Preprocess input data for model prediction"""
@@ -143,7 +166,7 @@ def home():
         'status': 'active',
         'message': 'Epilepsy Seizure Detection API',
         'timestamp': datetime.now().isoformat(),
-        'available_models': list(models.keys()),
+        'available_models': get_available_models(),
         'endpoints': {
             'prediction': '/predict',
             'binary_prediction': '/predict/binary',
@@ -158,6 +181,7 @@ def get_model_info():
     try:
         info = {
             'loaded_models': len(models),
+            'available_models': get_available_models(),
             'model_details': {}
         }
         
@@ -272,8 +296,10 @@ def predict():
         # Get model preference (default to CNN)
         model_type = data.get('model', 'cnn_3class')
         
-        if model_type not in models:
-            available_models = list(models.keys())
+        # Load model on demand
+        model = load_model_on_demand(model_type)
+        if model is None:
+            available_models = get_available_models()
             return jsonify({
                 'error': f'Model {model_type} not available',
                 'available_models': available_models
@@ -283,7 +309,6 @@ def predict():
         features = preprocess_input(data['features'])
         
         # Make prediction
-        model = models[model_type]
         predictions = model.predict(features)
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
@@ -330,12 +355,13 @@ def predict_binary():
                 'available_models': ['cnn_binary', 'bilstm_binary']
             }), 400
         
-        if model_type not in models:
+        # Load model on demand
+        model = load_model_on_demand(model_type)
+        if model is None:
             return jsonify({'error': f'Model {model_type} not loaded'}), 500
         
         # Preprocess and predict
         features = preprocess_input(data['features'])
-        model = models[model_type]
         predictions = model.predict(features)
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
@@ -375,14 +401,15 @@ def predict_batch():
         
         model_type = data.get('model', 'cnn_3class')
         
-        if model_type not in models:
+        # Load model on demand
+        model = load_model_on_demand(model_type)
+        if model is None:
             return jsonify({'error': f'Model {model_type} not available'}), 400
         
         # Preprocess batch input
         features = preprocess_input(data['features'])
         
         # Make batch predictions
-        model = models[model_type]
         predictions = model.predict(features)
         predicted_classes = np.argmax(predictions, axis=1)
         confidences = np.max(predictions, axis=1)
@@ -417,15 +444,19 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Load models at startup
-    logger.info("🚀 Starting Epilepsy Detection API...")
+    # Initialize API with on-demand model loading
+    logger.info("🚀 Starting Epilepsy Detection API with On-Demand Model Loading...")
     logger.info(f"🐍 Python version: {os.sys.version}")
     logger.info(f"🧠 TensorFlow version: {tf.__version__}")
     
     try:
-        load_models()
+        # Load model info only (lightweight)
+        load_model_info()
+        available = get_available_models()
+        logger.info(f"📋 Available models: {available}")
+        logger.info("💡 Models will be loaded on-demand to save memory")
     except Exception as e:
-        logger.error(f"❌ Critical error during model loading: {str(e)}")
+        logger.error(f"❌ Critical error during initialization: {str(e)}")
         logger.error(traceback.format_exc())
     
     # Run the app
