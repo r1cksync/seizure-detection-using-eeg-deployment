@@ -62,14 +62,27 @@ def load_models():
         
         logger.info(f"🗺️ Model mapping: {model_mapping}")
         
-        # Load each discovered model
+        # Load each discovered model with detailed error handling
         for model_name, model_path in model_mapping.items():
             try:
                 logger.info(f"🔄 Loading {model_name} from {model_path}")
-                models[model_name] = load_model(model_path)
+                
+                # Check file size
+                file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+                logger.info(f"📊 File size: {file_size:.2f} MB")
+                
+                # Try to load the model
+                model = load_model(model_path)
+                models[model_name] = model
                 logger.info(f"✅ Successfully loaded {model_name}")
+                logger.info(f"📋 Model input shape: {model.input_shape}")
+                logger.info(f"📋 Model output shape: {model.output_shape}")
+                
             except Exception as e:
                 logger.error(f"❌ Failed to load {model_name}: {str(e)}")
+                logger.error(f"📍 Full traceback for {model_name}:")
+                logger.error(traceback.format_exc())
+                # Continue loading other models even if one fails
         
         # Load model information
         pkl_files = [f for f in files_in_models if f.endswith('.pkl')]
@@ -178,6 +191,15 @@ def debug_info():
         # Check models directory
         if os.path.exists('models'):
             debug_data['files_in_models_dir'] = os.listdir('models')
+            
+            # Check file sizes
+            file_sizes = {}
+            for file in debug_data['files_in_models_dir']:
+                if file.endswith(('.h5', '.pkl')):
+                    file_path = os.path.join('models', file)
+                    size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                    file_sizes[file] = f"{size_mb:.2f} MB"
+            debug_data['file_sizes'] = file_sizes
         else:
             debug_data['files_in_models_dir'] = 'models directory not found'
         
@@ -185,6 +207,57 @@ def debug_info():
         
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+@app.route('/test-load/<model_name>', methods=['GET'])
+def test_load_single_model(model_name):
+    """Test loading a single model for debugging"""
+    try:
+        models_dir = 'models'
+        
+        # Find the file
+        model_file = None
+        if os.path.exists(models_dir):
+            files = os.listdir(models_dir)
+            for file in files:
+                if model_name in file and file.endswith('.h5'):
+                    model_file = os.path.join(models_dir, file)
+                    break
+        
+        if not model_file:
+            return jsonify({'error': f'Model file for {model_name} not found'}), 404
+        
+        # Try to load
+        logger.info(f"🧪 Testing load of {model_name} from {model_file}")
+        
+        file_size = os.path.getsize(model_file) / (1024 * 1024)
+        logger.info(f"📊 File size: {file_size:.2f} MB")
+        
+        # Attempt to load
+        test_model = load_model(model_file)
+        
+        result = {
+            'status': 'success',
+            'model_name': model_name,
+            'file_path': model_file,
+            'file_size_mb': f"{file_size:.2f}",
+            'input_shape': str(test_model.input_shape),
+            'output_shape': str(test_model.output_shape),
+            'parameters': test_model.count_params()
+        }
+        
+        # Don't keep the test model in memory
+        del test_model
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ Test load failed for {model_name}: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'model_name': model_name,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -346,7 +419,14 @@ def internal_error(error):
 if __name__ == '__main__':
     # Load models at startup
     logger.info("🚀 Starting Epilepsy Detection API...")
-    load_models()
+    logger.info(f"🐍 Python version: {os.sys.version}")
+    logger.info(f"🧠 TensorFlow version: {tf.__version__}")
+    
+    try:
+        load_models()
+    except Exception as e:
+        logger.error(f"❌ Critical error during model loading: {str(e)}")
+        logger.error(traceback.format_exc())
     
     # Run the app
     port = int(os.environ.get('PORT', 5000))

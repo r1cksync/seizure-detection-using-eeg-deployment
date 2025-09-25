@@ -168,6 +168,25 @@ def test_batch_prediction():
     except Exception as e:
         print(f"❌ Batch prediction error: {str(e)}")
 
+def test_debug_info():
+    """Test debug endpoint to troubleshoot model loading"""
+    print("\n🔧 Testing Debug Endpoint...")
+    try:
+        response = requests.get(f"{API_BASE_URL}/debug")
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ Debug info retrieved successfully!")
+            print(f"   📁 Current directory: {data.get('current_directory', 'Unknown')}")
+            print(f"   📂 Models directory exists: {data.get('models_directory_exists', False)}")
+            print(f"   📋 Files in models dir: {data.get('files_in_models_dir', [])}")
+            print(f"   🤖 Loaded models: {data.get('loaded_models_count', 0)}")
+            print(f"   📝 Model names: {data.get('loaded_model_names', [])}")
+        else:
+            print(f"❌ Debug info failed: {response.status_code}")
+            print(f"   Error: {response.text}")
+    except Exception as e:
+        print(f"❌ Debug info error: {str(e)}")
+
 def main():
     """Run all API tests"""
     print("🚀 EPILEPSY SEIZURE DETECTION API - TESTING SUITE")
@@ -183,6 +202,9 @@ def main():
         print("   2. Is the URL correct?")
         print("   3. Are there any network issues?")
         return
+    
+    # Run debug test to troubleshoot model loading
+    test_debug_info()
     
     # Run all tests
     test_model_info()
