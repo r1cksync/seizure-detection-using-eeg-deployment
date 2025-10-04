@@ -181,11 +181,40 @@ def test_debug_info():
             print(f"   📋 Files in models dir: {data.get('files_in_models_dir', [])}")
             print(f"   🤖 Loaded models: {data.get('loaded_models_count', 0)}")
             print(f"   📝 Model names: {data.get('loaded_model_names', [])}")
+            
+            # Show file sizes if available
+            if 'file_sizes' in data:
+                print("   📊 File sizes:")
+                for file, size in data['file_sizes'].items():
+                    print(f"      {file}: {size}")
         else:
             print(f"❌ Debug info failed: {response.status_code}")
             print(f"   Error: {response.text}")
     except Exception as e:
         print(f"❌ Debug info error: {str(e)}")
+
+def test_individual_model_loading():
+    """Test loading individual models to identify specific issues"""
+    print("\n🧪 Testing Individual Model Loading...")
+    
+    model_types = ['cnn_3class', 'bilstm_3class', 'cnn_binary', 'bilstm_binary']
+    
+    for model_type in model_types:
+        try:
+            print(f"\n   🔄 Testing {model_type}...")
+            response = requests.get(f"{API_BASE_URL}/test-load/{model_type}", timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                print(f"   ✅ {model_type}: {result['status']}")
+                print(f"      📊 Size: {result.get('file_size_mb', 'Unknown')} MB")
+                print(f"      📋 Shape: {result.get('input_shape', 'Unknown')} -> {result.get('output_shape', 'Unknown')}")
+            else:
+                error_data = response.json() if response.status_code != 500 else {"error": response.text}
+                print(f"   ❌ {model_type}: {error_data.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            print(f"   ❌ {model_type}: Connection error - {str(e)}")
 
 def main():
     """Run all API tests"""
@@ -205,6 +234,9 @@ def main():
     
     # Run debug test to troubleshoot model loading
     test_debug_info()
+    
+    # Test individual model loading
+    test_individual_model_loading()
     
     # Run all tests
     test_model_info()

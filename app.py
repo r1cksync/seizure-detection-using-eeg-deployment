@@ -1,7 +1,3 @@
-# ================================================================================
-# 🚀 EPILEPSY SEIZURE DETECTION API - FLASK APPLICATION
-# ================================================================================
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -12,6 +8,9 @@ import os
 import logging
 from datetime import datetime
 import traceback
+import cv2
+import io
+from scipy.interpolate import interp1d
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,46 +26,46 @@ model_info = None
 def load_model_on_demand(model_name):
     """Load a specific model on demand to save memory"""
     global models, model_info
-    
+   
     # If model already loaded, return it
     if model_name in models:
         logger.info(f"🔄 Using cached model: {model_name}")
         return models[model_name]
-    
+   
     try:
         # Check if models directory exists
         models_dir = 'models'
         if not os.path.exists(models_dir):
             logger.error(f"❌ Models directory not found: {models_dir}")
             return None
-        
+       
         # Find the model file
         files_in_models = os.listdir(models_dir)
         h5_files = [f for f in files_in_models if f.endswith('.h5') and model_name in f]
-        
+       
         if not h5_files:
             logger.error(f"❌ Model file for '{model_name}' not found in {files_in_models}")
             return None
-        
+       
         model_file = h5_files[0]
         model_path = f"{models_dir}/{model_file}"
-        
-        logger.info(f"� Loading {model_name} on-demand from {model_path}")
-        
+       
+        logger.info(f"📦 Loading {model_name} on-demand from {model_path}")
+       
         # Check file size
         file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
         logger.info(f"📊 File size: {file_size:.2f} MB")
-        
+       
         # Load the model
         model = load_model(model_path)
         models[model_name] = model  # Cache for future use
-        
+       
         logger.info(f"✅ Successfully loaded {model_name} on-demand")
         logger.info(f"📋 Model input shape: {model.input_shape}")  
         logger.info(f"📋 Model output shape: {model.output_shape}")
-        
+       
         return model
-        
+       
     except Exception as e:
         logger.error(f"❌ Failed to load {model_name} on-demand: {str(e)}")
         logger.error(f"📍 Full traceback:")
@@ -76,16 +75,16 @@ def load_model_on_demand(model_name):
 def load_model_info():
     """Load model information file"""
     global model_info
-    
+   
     try:
         models_dir = 'models'
         if not os.path.exists(models_dir):
             logger.error(f"❌ Models directory not found: {models_dir}")
             return
-        
+       
         files_in_models = os.listdir(models_dir)
         pkl_files = [f for f in files_in_models if f.endswith('.pkl')]
-        
+       
         if pkl_files:
             info_path = f"{models_dir}/{pkl_files[0]}"
             try:
@@ -96,7 +95,7 @@ def load_model_info():
                 logger.warning(f"⚠️ Could not load model info: {str(e)}")
         else:
             logger.warning("⚠️ No model info (.pkl) file found")
-            
+           
     except Exception as e:
         logger.error(f"❌ Error loading model info: {str(e)}")
 
@@ -106,10 +105,10 @@ def get_available_models():
         models_dir = 'models'
         if not os.path.exists(models_dir):
             return []
-        
+       
         files_in_models = os.listdir(models_dir)
         h5_files = [f for f in files_in_models if f.endswith('.h5')]
-        
+       
         available = []
         for file in h5_files:
             if 'cnn_3class' in file and 'cnn_3class' not in available:
@@ -120,9 +119,9 @@ def get_available_models():
                 available.append('cnn_binary')
             elif 'bilstm_binary' in file and 'bilstm_binary' not in available:
                 available.append('bilstm_binary')
-        
+       
         return available
-        
+       
     except Exception as e:
         logger.error(f"❌ Error getting available models: {str(e)}")
         return []
@@ -133,7 +132,7 @@ def preprocess_input(data):
         # Convert to numpy array if it's a list
         if isinstance(data, list):
             data = np.array(data)
-        
+       
         # Ensure correct shape (batch_size, 178, 1)
         if data.shape == (178,):
             # Single sample: reshape to (1, 178, 1)
@@ -149,12 +148,12 @@ def preprocess_input(data):
             pass
         else:
             raise ValueError(f"Invalid input shape: {data.shape}. Expected (178,) or (batch_size, 178)")
-        
+       
         # Normalize data (if needed - adjust based on your training preprocessing)
         # data = (data - np.mean(data)) / np.std(data)
-        
+       
         return data
-        
+       
     except Exception as e:
         logger.error(f"❌ Preprocessing error: {str(e)}")
         raise
@@ -171,6 +170,7 @@ def home():
             'prediction': '/predict',
             'binary_prediction': '/predict/binary',
             'batch_prediction': '/predict/batch',
+            'extract_eeg': '/extract_eeg',  # Added new endpoint
             'model_info': '/info'
         }
     })
@@ -184,19 +184,19 @@ def get_model_info():
             'available_models': get_available_models(),
             'model_details': {}
         }
-        
+       
         for model_name, model in models.items():
             info['model_details'][model_name] = {
                 'input_shape': str(model.input_shape),
                 'output_shape': str(model.output_shape),
                 'parameters': model.count_params()
             }
-        
+       
         if model_info:
             info['training_info'] = model_info.get('training_histories', {})
-        
+       
         return jsonify(info)
-        
+       
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -211,11 +211,11 @@ def debug_info():
             'loaded_models_count': len(models),
             'loaded_model_names': list(models.keys())
         }
-        
+       
         # Check models directory
         if os.path.exists('models'):
             debug_data['files_in_models_dir'] = os.listdir('models')
-            
+           
             # Check file sizes
             file_sizes = {}
             for file in debug_data['files_in_models_dir']:
@@ -226,9 +226,9 @@ def debug_info():
             debug_data['file_sizes'] = file_sizes
         else:
             debug_data['files_in_models_dir'] = 'models directory not found'
-        
+       
         return jsonify(debug_data)
-        
+       
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
@@ -237,7 +237,7 @@ def test_load_single_model(model_name):
     """Test loading a single model for debugging"""
     try:
         models_dir = 'models'
-        
+       
         # Find the file
         model_file = None
         if os.path.exists(models_dir):
@@ -246,19 +246,19 @@ def test_load_single_model(model_name):
                 if model_name in file and file.endswith('.h5'):
                     model_file = os.path.join(models_dir, file)
                     break
-        
+       
         if not model_file:
             return jsonify({'error': f'Model file for {model_name} not found'}), 404
-        
+       
         # Try to load
         logger.info(f"🧪 Testing load of {model_name} from {model_file}")
-        
+       
         file_size = os.path.getsize(model_file) / (1024 * 1024)
         logger.info(f"📊 File size: {file_size:.2f} MB")
-        
+       
         # Attempt to load
         test_model = load_model(model_file)
-        
+       
         result = {
             'status': 'success',
             'model_name': model_name,
@@ -268,12 +268,12 @@ def test_load_single_model(model_name):
             'output_shape': str(test_model.output_shape),
             'parameters': test_model.count_params()
         }
-        
+       
         # Don't keep the test model in memory
         del test_model
-        
+       
         return jsonify(result)
-        
+       
     except Exception as e:
         logger.error(f"❌ Test load failed for {model_name}: {str(e)}")
         return jsonify({
@@ -289,13 +289,13 @@ def predict():
     try:
         # Get JSON data
         data = request.get_json()
-        
+       
         if not data or 'features' not in data:
             return jsonify({'error': 'Missing features in request body'}), 400
-        
+       
         # Get model preference (default to CNN)
         model_type = data.get('model', 'cnn_3class')
-        
+       
         # Load model on demand
         model = load_model_on_demand(model_type)
         if model is None:
@@ -304,25 +304,25 @@ def predict():
                 'error': f'Model {model_type} not available',
                 'available_models': available_models
             }), 400
-        
+       
         # Preprocess input
         features = preprocess_input(data['features'])
-        
+       
         # Make prediction
         raw_predictions = model.predict(features)
-        
+       
         # Apply softmax to convert logits to probabilities
         predictions = tf.nn.softmax(raw_predictions).numpy()
-        
+       
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
-        
+       
         # Map class to seizure type (adjust based on your class mapping)
         class_mapping = {
             0: 'Seizure Activity',
             1: 'Normal Activity'
         }
-        
+       
         result = {
             'prediction': {
                 'class': int(predicted_class),
@@ -334,9 +334,9 @@ def predict():
             'raw_logits': raw_predictions[0].tolist(),  # Include raw outputs for debugging
             'timestamp': datetime.now().isoformat()
         }
-        
+       
         return jsonify(result)
-        
+       
     except Exception as e:
         logger.error(f"❌ Prediction error: {str(e)}")
         logger.error(traceback.format_exc())
@@ -347,40 +347,40 @@ def predict_binary():
     """Binary prediction endpoint (Epileptic vs Others)"""
     try:
         data = request.get_json()
-        
+       
         if not data or 'features' not in data:
             return jsonify({'error': 'Missing features in request body'}), 400
-        
+       
         # Use binary classification models
         model_type = data.get('model', 'cnn_binary')
-        
+       
         if model_type not in ['cnn_binary', 'bilstm_binary']:
             return jsonify({
                 'error': f'Binary model {model_type} not available',
                 'available_models': ['cnn_binary', 'bilstm_binary']
             }), 400
-        
+       
         # Load model on demand
         model = load_model_on_demand(model_type)
         if model is None:
             return jsonify({'error': f'Model {model_type} not loaded'}), 500
-        
+       
         # Preprocess and predict
         features = preprocess_input(data['features'])
         raw_predictions = model.predict(features)
-        
+       
         # Apply softmax to convert logits to probabilities
         predictions = tf.nn.softmax(raw_predictions).numpy()
-        
+       
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
-        
+       
         # Binary classification mapping
         binary_mapping = {
             0: 'Non-Epileptic',
             1: 'Epileptic Seizure'
         }
-        
+       
         result = {
             'prediction': {
                 'class': int(predicted_class),
@@ -393,9 +393,9 @@ def predict_binary():
             'raw_logits': raw_predictions[0].tolist(),  # Include raw outputs for debugging
             'timestamp': datetime.now().isoformat()
         }
-        
+       
         return jsonify(result)
-        
+       
     except Exception as e:
         logger.error(f"❌ Binary prediction error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -405,29 +405,29 @@ def predict_batch():
     """Batch prediction endpoint for multiple samples"""
     try:
         data = request.get_json()
-        
+       
         if not data or 'features' not in data:
             return jsonify({'error': 'Missing features in request body'}), 400
-        
+       
         model_type = data.get('model', 'cnn_3class')
-        
+       
         # Load model on demand
         model = load_model_on_demand(model_type)
         if model is None:
             return jsonify({'error': f'Model {model_type} not available'}), 400
-        
+       
         # Preprocess batch input
         features = preprocess_input(data['features'])
-        
+       
         # Make batch predictions
         raw_predictions = model.predict(features)
-        
+       
         # Apply softmax to convert logits to probabilities
         predictions = tf.nn.softmax(raw_predictions).numpy()
-        
+       
         predicted_classes = np.argmax(predictions, axis=1)
         confidences = np.max(predictions, axis=1)
-        
+       
         # Format results
         results = []
         for i in range(len(predicted_classes)):
@@ -437,17 +437,88 @@ def predict_batch():
                 'confidence': float(confidences[i]),
                 'probabilities': predictions[i].tolist()
             })
-        
+       
         return jsonify({
             'predictions': results,
             'model_used': model_type,
             'batch_size': len(results),
             'timestamp': datetime.now().isoformat()
         })
-        
+       
     except Exception as e:
         logger.error(f"❌ Batch prediction error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/extract_eeg', methods=['POST'])
+def extract_eeg():
+    """Extract EEG signal values from uploaded plot image"""
+    try:
+        if 'file' not in request.files:
+            logger.error("❌ No file uploaded in request")
+            return jsonify({'error': 'No file uploaded'}), 400
+       
+        file = request.files['file']
+        if not file.filename.endswith('.png'):
+            logger.error(f"❌ Invalid file format: {file.filename}")
+            return jsonify({'error': 'File must be a PNG image'}), 400
+
+        logger.info(f"📤 Received EEG image: {file.filename}")
+       
+        # Read image
+        file_bytes = file.read()
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            logger.error("❌ Failed to decode image")
+            return jsonify({'error': 'Invalid image file'}), 400
+
+        # Convert to grayscale and threshold to isolate the EEG line
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+
+        # Find non-zero pixels (EEG signal line)
+        coords = np.column_stack(np.where(thresh > 0))
+        if len(coords) == 0:
+            logger.error("❌ No EEG signal found in image")
+            return jsonify({'error': 'No EEG signal found in image'}), 400
+
+        # Sort by x-coordinate (time axis)
+        coords = coords[coords[:, 1].argsort()]
+        x_pixels = coords[:, 1]
+        y_pixels = coords[:, 0]
+
+        # Deduplicate x_pixels (take first y_pixel for each x)
+        unique_x, indices = np.unique(x_pixels, return_index=True)
+        y_pixels = y_pixels[indices]
+
+        # Interpolate to 178 points
+        x_normalized = np.linspace(0, 1, len(unique_x))
+        interpolator = interp1d(x_normalized, y_pixels, kind='linear', fill_value='extrapolate')
+        x_new = np.linspace(0, 1, 178)
+        y_interpolated = interpolator(x_new)
+
+        # Map y-pixels to amplitude (assuming plot range [-200, 200] μV)
+        img_height = img.shape[0]
+        y_center = img_height / 2
+        amplitude_range = 200  # Adjust based on plot's y-axis range
+        amplitudes = (y_center - y_interpolated) / img_height * 2 * amplitude_range
+
+        # Ensure 178 values
+        if len(amplitudes) != 178:
+            logger.error(f"❌ Extracted {len(amplitudes)} values, expected 178")
+            return jsonify({'error': 'Failed to extract 178 values'}), 400
+
+        logger.info(f"✅ Successfully extracted 178 EEG values")
+        return jsonify({
+            'data': amplitudes.tolist(),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error processing image: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({'error': f'Error processing image: {str(e)}'}), 500
 
 @app.errorhandler(404)
 def not_found(error):
@@ -462,7 +533,7 @@ if __name__ == '__main__':
     logger.info("🚀 Starting Epilepsy Detection API with On-Demand Model Loading...")
     logger.info(f"🐍 Python version: {os.sys.version}")
     logger.info(f"🧠 TensorFlow version: {tf.__version__}")
-    
+   
     try:
         # Load model info only (lightweight)
         load_model_info()
@@ -472,7 +543,7 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Critical error during initialization: {str(e)}")
         logger.error(traceback.format_exc())
-    
+   
     # Run the app
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
