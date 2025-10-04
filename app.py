@@ -309,7 +309,11 @@ def predict():
         features = preprocess_input(data['features'])
         
         # Make prediction
-        predictions = model.predict(features)
+        raw_predictions = model.predict(features)
+        
+        # Apply softmax to convert logits to probabilities
+        predictions = tf.nn.softmax(raw_predictions).numpy()
+        
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
         
@@ -327,6 +331,7 @@ def predict():
             },
             'model_used': model_type,
             'probabilities': predictions[0].tolist(),
+            'raw_logits': raw_predictions[0].tolist(),  # Include raw outputs for debugging
             'timestamp': datetime.now().isoformat()
         }
         
@@ -362,7 +367,11 @@ def predict_binary():
         
         # Preprocess and predict
         features = preprocess_input(data['features'])
-        predictions = model.predict(features)
+        raw_predictions = model.predict(features)
+        
+        # Apply softmax to convert logits to probabilities
+        predictions = tf.nn.softmax(raw_predictions).numpy()
+        
         predicted_class = np.argmax(predictions, axis=1)[0]
         confidence = float(np.max(predictions))
         
@@ -381,6 +390,7 @@ def predict_binary():
             },
             'model_used': model_type,
             'probabilities': predictions[0].tolist(),
+            'raw_logits': raw_predictions[0].tolist(),  # Include raw outputs for debugging
             'timestamp': datetime.now().isoformat()
         }
         
@@ -410,7 +420,11 @@ def predict_batch():
         features = preprocess_input(data['features'])
         
         # Make batch predictions
-        predictions = model.predict(features)
+        raw_predictions = model.predict(features)
+        
+        # Apply softmax to convert logits to probabilities
+        predictions = tf.nn.softmax(raw_predictions).numpy()
+        
         predicted_classes = np.argmax(predictions, axis=1)
         confidences = np.max(predictions, axis=1)
         
